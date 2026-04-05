@@ -9,6 +9,39 @@ ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 const fileManager = new GoogleAIFileManager(process.env.GOOGLE_API_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 
+function getMimeType(filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.wav') return 'audio/wav';
+    if (ext === '.mp3') return 'audio/mp3';
+    return 'audio/mp3'; // Default fallback
+}
+
+/**
+ * Processes raw audio directly (bypassing Video FFmpeg step)
+ */
+async function processAudio(audioPath) {
+    const mimeType = getMimeType(audioPath);
+    console.log(`Uploading audio to Google AI File API: ${audioPath} (${mimeType})`);
+    
+    // 1. Upload audio
+    const uploadResult = await fileManager.uploadFile(audioPath, {
+        mimeType: mimeType,
+        displayName: path.basename(audioPath),
+    });
+    
+    // 2. Transcribe via Gemini
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const result = await model.generateContent([
+        { fileData: { mimeType: uploadResult.file.mimeType, fileUri: uploadResult.file.uri } },
+        { text: "Provide a complete verbatim transcript of this audio file. Group paragraphs logically and ALWAYS prefix each paragraph with its start and end timestamp in the exact format \"[MM:SS - MM:SS]: \". Do not output anything else." }
+    ]);
+    
+    return result.response.text();
+}
+
+/**
+ * Extracts Audio from Video, processes the Audio, then cleans up the temporary .mp3
+ */
 async function processVideo(videoPath) {
     const audioPath = path.join(path.dirname(videoPath), `${path.basename(videoPath, path.extname(videoPath))}.mp3`);
 
@@ -20,21 +53,9 @@ async function processVideo(videoPath) {
             .on('end', async () => {
                 console.log(`Audio extracted to ${audioPath}`);
                 try {
-                    // 1. Upload audio to Google AI File API
-                    const uploadResult = await fileManager.uploadFile(audioPath, {
-                        mimeType: "audio/mp3",
-                        displayName: path.basename(audioPath),
-                    });
-                    
-                    // 2. Transcribe via Gemini
-                    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-                    const result = await model.generateContent([
-                        { fileData: { mimeType: uploadResult.file.mimeType, fileUri: uploadResult.file.uri } },
-                        { text: "Provide a complete verbatim transcript of this audio file. Group paragraphs logically and ALWAYS prefix each paragraph with its start and end timestamp in the exact format \"[MM:SS - MM:SS]: \". Do not output anything else." }
-                    ]);
-                    
+                    const text = await processAudio(audioPath);
                     fs.unlinkSync(audioPath); // Cleanup local audio file
-                    resolve(result.response.text());
+                    resolve(text);
                 } catch (error) {
                     if (fs.existsSync(audioPath)) fs.unlinkSync(audioPath);
                     reject(error);
@@ -46,4 +67,4 @@ async function processVideo(videoPath) {
     });
 }
 
-module.exports = { processVideo };
+module.exports = { processVideo, processAudio };
