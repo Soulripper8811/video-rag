@@ -5,25 +5,28 @@ const { createStuffDocumentsChain } = require("langchain/chains/combine_document
 const { createRetrievalChain } = require("langchain/chains/retrieval");
 const { ChatPromptTemplate } = require("@langchain/core/prompts");
 
-// In-memory vector store for MVP
 let vectorStore = null;
+
+// Shared embeddings instance — same model used for both indexing & querying
+const embeddings = new GoogleGenerativeAIEmbeddings({ 
+    modelName: "gemini-embedding-2-preview",
+    
+});
 
 async function indexDocument(text, sourceName) {
     const splitter = new RecursiveCharacterTextSplitter({
         chunkSize: 1000,
         chunkOverlap: 200,
     });
-    
-    // Split the text into chunks
+
     const docs = await splitter.createDocuments([text], [{ source: sourceName }]);
-    
-    // Initialize or add to the vector store
+
     if (!vectorStore) {
-        vectorStore = await MemoryVectorStore.fromDocuments(docs, new GoogleGenerativeAIEmbeddings({ modelName: "text-embedding-004" }));
+        vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
     } else {
         await vectorStore.addDocuments(docs);
     }
-    
+
     console.log(`Indexed ${docs.length} chunks from ${sourceName}`);
 }
 
@@ -33,8 +36,10 @@ async function queryModel(question) {
     }
 
     const model = new ChatGoogleGenerativeAI({ model: "gemini-2.5-flash" });
+
+    // Retriever uses the same shared embeddings instance to embed the query
     const retriever = vectorStore.asRetriever();
-    
+
     const prompt = ChatPromptTemplate.fromTemplate(`
     Answer the following question based only on the provided context:
     <context>
@@ -42,21 +47,21 @@ async function queryModel(question) {
     </context>
     Question: {input}
     `);
-    
+
     const documentChain = await createStuffDocumentsChain({
         llm: model,
         prompt,
     });
-    
+
     const retrievalChain = await createRetrievalChain({
         combineDocsChain: documentChain,
         retriever,
     });
-    
+
     const response = await retrievalChain.invoke({
         input: question,
     });
-    
+
     return response.answer;
 }
 
