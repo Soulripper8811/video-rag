@@ -1,0 +1,2 @@
+Error with 'model': Please set an API key for Google GenerativeAI in the environment variable GOOGLE_API_KEY or in the `apiKey` field of the ChatGoogleGenerativeAI constructor
+Error with 'modelName': Cannot read properties of undefined (reading 'replace')
