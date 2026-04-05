@@ -14,12 +14,35 @@ const embeddings = new GoogleGenerativeAIEmbeddings({
 });
 
 async function indexDocument(text, sourceName) {
-    const splitter = new RecursiveCharacterTextSplitter({
-        chunkSize: 1000,
-        chunkOverlap: 200,
-    });
+    const docs = [];
+    
+    // Split the text into chunks whenever a timestamp matches exactly like [00:00 - 00:15]:
+    const segments = text.split(/(?=\[\d{2}:\d{2}\s*-\s*\d{2}:\d{2}\]:?)/g);
+    
+    for (let segment of segments) {
+        segment = segment.trim();
+        if (!segment) continue;
+        
+        let time = "Unknown";
+        let content = segment;
+        
+        const timeMatch = segment.match(/^\[(.*?)\]:?\s*(.*)/s);
+        if (timeMatch) {
+            time = timeMatch[1];
+            // Include the timestamp right in the text chunk so the RAG model natively sees it
+            content = `[Time: ${time}] ${timeMatch[2]}`;
+        }
+        
+        docs.push({
+            pageContent: content,
+            metadata: { source: sourceName, time: time }
+        });
+    }
 
-    const docs = await splitter.createDocuments([text], [{ source: sourceName }]);
+    if (docs.length === 0) {
+        console.log("No valid transcript chunks found to index.");
+        return;
+    }
 
     if (!vectorStore) {
         vectorStore = await MemoryVectorStore.fromDocuments(docs, embeddings);
@@ -41,7 +64,9 @@ async function queryModel(question) {
     const retriever = vectorStore.asRetriever();
 
     const prompt = ChatPromptTemplate.fromTemplate(`
-    Answer the following question based only on the provided context:
+    Answer the following question based only on the provided context.
+    IMPORTANT: You must include the timestamps from the context in your answer so the user knows when the video discussed it (e.g. "At [00:15 - 00:30] the video mentions...").
+    
     <context>
     {context}
     </context>

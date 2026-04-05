@@ -30,7 +30,7 @@ async function processVideo(videoPath) {
                     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
                     const result = await model.generateContent([
                         { fileData: { mimeType: uploadResult.file.mimeType, fileUri: uploadResult.file.uri } },
-                        { text: "Provide a highly accurate, verbatim transcript of this audio file. Output only the transcript itself." }
+                        { text: "Provide a complete verbatim transcript of this audio file. Group paragraphs logically and ALWAYS prefix each paragraph with its start and end timestamp in the exact format \"[MM:SS - MM:SS]: \". Do not output anything else." }
                     ]);
                     
                     fs.unlinkSync(audioPath); // Cleanup local audio file
